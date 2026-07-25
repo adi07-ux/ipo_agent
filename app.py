@@ -7,50 +7,50 @@ import google.generativeai as genai
 st.set_page_config(page_title="Autonomous SEBI DRHP Agent", layout="wide")
 
 # ==========================================
-# HYBRID ENGINE: DETERMINISTIC FALLBACK
+# BALANCED DETERMINISTIC FALLBACK ENGINE
 # ==========================================
 def analyze_live_pdf_fallback(raw_text, total_pages, scan_limit):
-    """The deterministic range threshold method (Fallback)"""
+    """A balanced deterministic rule-based checker to prevent false 100/100 spikes."""
     text_lower = raw_text.lower()
     
     risk_score = 25
-    confidence_score = 100
+    confidence_score = 90
     evidence_log = []
     path_taken = ["Financial Extraction"]
     
-    if "debt-to-equity" in text_lower or "outstanding indebtedness" in text_lower or "borrowings" in text_lower:
-        risk_score += 25
-        confidence_score -= 10
-        evidence_log.append(f"🛑 **+25 pts:** Debt/leverage threshold breached. — [Scanned Pg 1-{scan_limit}]")
+    # Check for specific structural indicators rather than just loose words
+    if "debt-to-equity" in text_lower or "outstanding indebtedness" in text_lower:
+        risk_score += 20
+        confidence_score -= 5
+        evidence_log.append(f"🛑 **+20 pts:** Significant indebtedness disclosures found. — [Scanned Pg 1-{scan_limit}]")
         path_taken.append("Leverage Threshold Check")
         
-    if "litigation" in text_lower or "tribunal" in text_lower or "sebi probe" in text_lower:
-        risk_score += 35
-        confidence_score -= 15
-        evidence_log.append(f"🛑 **+35 pts:** Active litigation keywords detected. — [Scanned Pg 1-{scan_limit}]")
+    if "sebi probe" in text_lower or "show cause notice" in text_lower or "debarment" in text_lower:
+        risk_score += 30
+        confidence_score -= 10
+        evidence_log.append(f"🛑 **+30 pts:** Regulatory or legal action keywords flagged. — [Scanned Pg 1-{scan_limit}]")
         path_taken.append("Governance Audit")
         
-    if "negative cash flow" in text_lower or "net loss" in text_lower:
-        risk_score += 20
-        confidence_score -= 10
-        evidence_log.append(f"🛑 **+20 pts:** Negative cash flow parameters triggered. — [Scanned Pg 1-{scan_limit}]")
+    if "negative cash flows from operating activities" in text_lower or "net losses" in text_lower:
+        risk_score += 15
+        confidence_score -= 5
+        evidence_log.append(f"🛑 **+15 pts:** Operating loss disclosures confirmed. — [Scanned Pg 1-{scan_limit}]")
         path_taken.append("Cash Flow Analysis")
 
     risk_score = min(risk_score, 100)
     confidence_score = max(confidence_score, 0)
     
-    if not evidence_log:
-        evidence_log.append(f"🟢 **+0 pts:** No severe anomaly keywords detected. — [Scanned Pg 1-{scan_limit}]")
+    if len(evidence_log) == 0:
+        evidence_log.append(f"🟢 **+0 pts:** Standard regulatory disclosures observed. — [Scanned Pg 1-{scan_limit}]")
         path_taken.append("Clean Baseline Validation")
         
     path_taken.append("Investigation Complete")
     return risk_score, confidence_score, evidence_log, path_taken
 
 # ==========================================
-# HYBRID ENGINE: PRIMARY LLM AGENT
+# PRIMARY LLM AGENT (SECREts Management)
 # ==========================================
-def analyze_live_pdf(pdf_file, api_key):
-    """Attempts real LLM reasoning, degrades gracefully to deterministic fallback."""
+def analyze_live_pdf(pdf_file):
     raw_text = ""
     total_pages = 0
     pages_to_scan = 30
@@ -70,7 +70,13 @@ def analyze_live_pdf(pdf_file, api_key):
     if "prospectus" not in text_lower and "sebi" not in text_lower and "issue" not in text_lower:
         return 100, 0, ["🛑 **Validation Failed:** The uploaded file does not appear to be a valid SEBI IPO filing."], raw_text, ["Validation Check"], False
     
-    # --- TRUE AGENTIC ATTEMPT ---
+    # Securely retrieve API key from Streamlit secrets (No UI clutter)
+    api_key = None
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        pass
+
     if api_key:
         try:
             genai.configure(api_key=api_key)
@@ -83,32 +89,29 @@ def analyze_live_pdf(pdf_file, api_key):
             Respond strictly in valid JSON format with these exact keys:
             "risk_score": integer between 25 and 100,
             "confidence_score": integer between 0 and 100,
-            "evidence_log": list of strings citing the issues found (e.g., "🛑 High debt detected."),
-            "path_taken": list of strings representing the logic steps (e.g., ["Financial Extraction", "Debt Analysis", "Complete"])
+            "evidence_log": list of strings citing the issues found,
+            "path_taken": list of strings representing the logic steps
             
             Document Text:
             {raw_text[:15000]} 
             """
             
-            # Simple retry logic (Backoff)
             for attempt in range(2):
                 try:
                     response = model.generate_content(prompt)
-                    # Strip markdown block formatting if present
                     json_str = response.text.replace('```json', '').replace('```', '').strip()
                     data = json.loads(json_str)
                     return data['risk_score'], data['confidence_score'], data['evidence_log'], raw_text, data['path_taken'], False
                 except Exception:
-                    time.sleep(1.5) # Wait and retry
+                    time.sleep(1.5)
             
             raise Exception("LLM Retries Exhausted")
             
         except Exception:
-            # Silently fall through to fallback
             pass
 
-    # --- DETERMINISTIC FALLBACK ---
-    risk, conf, ev, path = analyze_live_pdf_fallback(raw_text, total_pages, scan_limit)
+    # Fallback execution if key is missing or API fails
+    risk, conf, ev, path = analyze_live_pdf_fallback(raw_text, total_pages, pages_to_scan)
     return risk, conf, ev, raw_text, path, True
 
 # ==========================================
@@ -124,9 +127,6 @@ scenario = st.sidebar.selectbox(
         "Scenario C: Clean Baseline"
     ]
 )
-
-st.sidebar.markdown("---")
-api_key = st.sidebar.text_input("Gemini API Key (For Live Agent):", type="password")
 
 st.title("🤖 Autonomous SEBI DRHP Agent")
 st.markdown("Automated Due Diligence & Risk Factor Extraction for Indian Capital Markets")
@@ -197,7 +197,7 @@ if st.button("Initialize Due Diligence Agent"):
                 plan_panel.info("**Current Priorities:**\n1. Baseline Validation (90%)\n2. Agentic Reasoning (10%)")
                 hypothesis_panel.info("💭 **Observation:** Ingesting live document. Routing to primary LLM...")
                 
-                live_risk, live_conf, live_evidence, live_text, final_path, is_fallback = analyze_live_pdf(uploaded_file, api_key)
+                live_risk, live_conf, live_evidence, live_text, final_path, is_fallback = analyze_live_pdf(uploaded_file)
                 
                 if "Validation Failed" in live_evidence[0]:
                     st.error(live_evidence[0])
@@ -208,7 +208,7 @@ if st.button("Initialize Due Diligence Agent"):
                     time.sleep(1)
                     
                     if is_fallback:
-                        st.warning("⚠️ **Fallback Mode Active:** LLM routing timed out. Seamlessly transitioned to deterministic rule-based evaluation.")
+                        st.warning("⚠️ **Resilience Mode Active:** API route unlinked or unavailable. Seamlessly degraded to deterministic heuristics.")
                     else:
                         st.success("✅ **Primary Pipeline Active:** LLM successfully parsed document layout and reasoned through disclosures.")
                         
