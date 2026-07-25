@@ -9,10 +9,15 @@ st.set_page_config(page_title="Autonomous SEBI DRHP Agent", layout="wide")
 # ==========================================
 def analyze_live_pdf(pdf_file):
     raw_text = ""
+    total_pages = 0
     try:
         with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages[:20]:
-                raw_text += page.extract_text() + "\n"
+            total_pages = len(pdf.pages)
+            # Scans every single page in the document
+            for page in pdf.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    raw_text += extracted + "\n"
     except Exception as e:
         return 100, 0, ["Error parsing PDF text."], "Failed to read PDF.", []
 
@@ -29,24 +34,31 @@ def analyze_live_pdf(pdf_file):
     if "debt-to-equity" in text_lower or "outstanding indebtedness" in text_lower or "borrowings" in text_lower:
         risk_score += 25
         confidence_score -= 10
-        evidence_log.append("🛑 **+25 pts:** Debt/leverage threshold breached. — [Pg 1-20 Scan]")
+        evidence_log.append(f"🛑 **+25 pts:** Debt/leverage threshold breached. — [Full {total_pages}-Page Scan]")
         path_taken.append("Leverage Threshold Check")
         
     if "litigation" in text_lower or "tribunal" in text_lower or "sebi probe" in text_lower:
         risk_score += 35
         confidence_score -= 15
-        evidence_log.append("🛑 **+35 pts:** Active litigation keywords detected. — [Pg 1-20 Scan]")
+        evidence_log.append(f"🛑 **+35 pts:** Active litigation keywords detected. — [Full {total_pages}-Page Scan]")
         path_taken.append("Governance Audit")
+        
+    if "negative cash flow" in text_lower or "net loss" in text_lower:
+        risk_score += 20
+        confidence_score -= 10
+        evidence_log.append(f"🛑 **+20 pts:** Negative cash flow parameters triggered. — [Full {total_pages}-Page Scan]")
+        path_taken.append("Cash Flow Analysis")
 
     risk_score = min(risk_score, 100)
     confidence_score = max(confidence_score, 0)
     
     if not evidence_log:
-        evidence_log.append("🟢 **+0 pts:** No severe anomaly keywords detected in initial scan.")
+        evidence_log.append(f"🟢 **+0 pts:** No severe anomaly keywords detected. — [Full {total_pages}-Page Scan]")
         path_taken.append("Clean Baseline Validation")
         
     path_taken.append("Investigation Complete")
     return risk_score, confidence_score, evidence_log, raw_text, path_taken
+
 
 # ==========================================
 # UI SETUP & INGESTION
@@ -55,9 +67,9 @@ st.sidebar.title("🎯 Demo Scenario Selector")
 scenario = st.sidebar.selectbox(
     "Select DRHP Injection Profile:",
     [
+        "Upload Real PDF (Live Demo)",
         "Scenario A: The Pivot (Hypothesis Rejection)",
         "Scenario B: The Governance Trap",
-        "Upload Real PDF (Live Demo)",
         "Scenario C: Clean Baseline"
     ]
 )
@@ -68,18 +80,44 @@ st.markdown("---")
 
 st.header("1. Document Ingestion")
 uploaded_file = None
+preview_text = "Evaluating uploaded document layout...\nExtracting base financial metrics...\nScanning for standard SEBI disclosures..."
 
 if scenario == "Upload Real PDF (Live Demo)":
     uploaded_file = st.file_uploader("Upload SEBI DRHP Filing (PDF):", type="pdf")
     if uploaded_file is not None:
         st.success("✅ PDF Uploaded successfully!")
+        try:
+            with pdfplumber.open(uploaded_file) as pdf:
+                extracted = pdf.pages[0].extract_text()
+                if extracted:
+                    preview_text = extracted[:1500] + "\n\n... [Remaining text securely buffered] ..."
+                else:
+                    preview_text = "No readable text found on the first page."
+            uploaded_file.seek(0) 
+        except Exception as e:
+            preview_text = f"Preview generation failed.\nError: {e}"
 else:
     st.info(f"Ingesting DRHP profile: {scenario}")
+
+with st.expander("📄 View Parsed Sections & Tables"):
+    if scenario == "Upload Real PDF (Live Demo)":
+        if uploaded_file is not None:
+            st.text_area("Raw Extracted Text Snippet:", preview_text, height=150)
+        else:
+            st.write("Awaiting file upload...")
+    elif "Scenario A" in scenario:
+        st.text_area("Raw Extracted Text Snippet:", "INTERNAL RISK FACTORS (Page 42):\n...resulting in a Debt-to-Equity ratio of 2.8x...\n\nRELATED PARTY TRANSACTIONS (Page 61):\n82% of revenue derived from a single client...", height=150)
+    elif "Scenario B" in scenario:
+        st.text_area("Raw Extracted Text Snippet:", "FINANCIAL OVERVIEW (Page 34):\nDebt-to-Equity ratio of 0.8x.\n\nLITIGATION (Page 55):\nLead Promoter subject to ongoing SEBI fact-finding probe...", height=150)
+    else:
+        st.text_area("Raw Extracted Text Snippet:", "FINANCIAL OVERVIEW (Page 35):\nDebt-to-Equity stands at 0.8x.\n\nLITIGATION (Page 104):\nNo material pending litigations...", height=150)
+
+st.markdown("---")
+
 
 # ==========================================
 # AUTONOMOUS REACT ENGINE
 # ==========================================
-st.markdown("---")
 st.header("2. Autonomous ReAct Engine")
 final_path = []
 
@@ -97,8 +135,37 @@ if st.button("Initialize Due Diligence Agent"):
         
         with st.status("🔍 Agent actively investigating...", expanded=True) as status:
             
+            # --- LIVE DEMO PATH ---
+            if scenario == "Upload Real PDF (Live Demo)":
+                if uploaded_file is None:
+                    st.error("Please upload a PDF first!")
+                    st.stop()
+                
+                plan_panel.info("**Current Priorities:**\n1. Baseline Validation (90%)\n2. Keyword Scan (10%)")
+                hypothesis_panel.info("💭 **Observation:** Ingesting live document. Determining optimal routing.")
+                st.write("⚙️ **Action:** Extracting full text via `pdfplumber`...")
+                
+                live_risk, live_conf, live_evidence, live_text, final_path = analyze_live_pdf(uploaded_file)
+                time.sleep(1.5)
+                
+                if "Validation Failed" in live_evidence[0]:
+                    st.error(live_evidence[0])
+                    hypothesis_panel.error("🎯 **Conclusion:** Invalid Document. Agent elected to abort.")
+                    status.update(label="Investigation Aborted", state="error", expanded=False)
+                else:
+                    st.write("🛠️ **Decision:** Selected **Deterministic Risk Scanner**. Chosen to avoid LLM hallucination on strict financial bounds.")
+                    time.sleep(1.5)
+                    st.write("🛑 **Evaluation:** Baseline scan complete. No unresolved high-priority hypotheses remain.")
+                    
+                    if live_risk > 50:
+                        hypothesis_panel.error(f"🎯 **Investigation Complete:** Agent elected to stop. Anomalies confirmed.")
+                        status.update(label="Investigation Complete", state="error", expanded=False)
+                    else:
+                        hypothesis_panel.success(f"🎯 **Investigation Complete:** Agent elected to stop. Baseline stable.")
+                        status.update(label="Investigation Complete", state="complete", expanded=False)
+
             # --- SCENARIO A: THE PIVOT ---
-            if "Scenario A" in scenario:
+            elif "Scenario A" in scenario:
                 plan_panel.info("**Current Priorities:**\n1. Industry Benchmark (72%)\n2. Revenue Quality (18%)\n3. Governance Audit (10%)")
                 
                 hypothesis_panel.info("💭 **Observation:** Debt-to-equity is 2.8x. Three investigations are possible: Governance, Benchmark, or Cash Flow.")
@@ -144,35 +211,6 @@ if st.button("Initialize Due Diligence Agent"):
                 hypothesis_panel.error("🎯 **Investigation Complete:** Agent elected to stop. Financials are a smokescreen; primary risk is governance.")
                 status.update(label="Investigation Complete", state="error", expanded=False)
                 final_path = ["Financial Extraction", "NLP Keyword Scanner", "Legal Docket Search", "Complete (Suspended)"]
-
-            # --- LIVE DEMO PATH ---
-            elif scenario == "Upload Real PDF (Live Demo)":
-                if uploaded_file is None:
-                    st.error("Please upload a PDF first!")
-                    st.stop()
-                
-                plan_panel.info("**Current Priorities:**\n1. Baseline Validation (90%)\n2. Keyword Scan (10%)")
-                hypothesis_panel.info("💭 **Observation:** Ingesting live document. Determining optimal routing.")
-                st.write("⚙️ **Action:** Extracting text via `pdfplumber`...")
-                
-                live_risk, live_conf, live_evidence, live_text, final_path = analyze_live_pdf(uploaded_file)
-                time.sleep(1.5)
-                
-                if "Validation Failed" in live_evidence[0]:
-                    st.error(live_evidence[0])
-                    hypothesis_panel.error("🎯 **Conclusion:** Invalid Document. Agent elected to abort.")
-                    status.update(label="Investigation Aborted", state="error", expanded=False)
-                else:
-                    st.write("🛠️ **Decision:** Selected **Deterministic Risk Scanner**. Chosen to avoid LLM hallucination on strict financial bounds.")
-                    time.sleep(1.5)
-                    st.write("🛑 **Evaluation:** Baseline scan complete. No unresolved high-priority hypotheses remain.")
-                    
-                    if live_risk > 50:
-                        hypothesis_panel.error(f"🎯 **Investigation Complete:** Agent elected to stop. Anomalies confirmed.")
-                        status.update(label="Investigation Complete", state="error", expanded=False)
-                    else:
-                        hypothesis_panel.success(f"🎯 **Investigation Complete:** Agent elected to stop. Baseline stable.")
-                        status.update(label="Investigation Complete", state="complete", expanded=False)
 
             # --- SCENARIO C: CLEAN ---
             else:
