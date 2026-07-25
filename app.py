@@ -6,7 +6,6 @@ st.set_page_config(page_title="Autonomous SEBI DRHP Agent", layout="wide")
 
 # ==========================================
 # REAL DETERMINISTIC SCORING ENGINE 
-# (Uses simple range thresholds, avoiding complex multi-threaded hallucination)
 # ==========================================
 def analyze_live_pdf(pdf_file):
     """Extracts text from the uploaded PDF and calculates a real risk score."""
@@ -20,6 +19,13 @@ def analyze_live_pdf(pdf_file):
         return 100, 0, ["Error parsing PDF text."], "Failed to read PDF."
 
     text_lower = raw_text.lower()
+    
+    # ==========================================
+    # DOCUMENT VALIDATION GUARDRAIL
+    # ==========================================
+    if "prospectus" not in text_lower and "sebi" not in text_lower and "issue" not in text_lower:
+        # If it doesn't look like an IPO, reject it instantly!
+        return 100, 0, ["🛑 **Validation Failed:** The uploaded file does not appear to be a valid SEBI IPO filing. Cannot proceed with due diligence."], raw_text
     
     # Baseline Scores
     risk_score = 25
@@ -73,15 +79,32 @@ st.markdown("Automated Due Diligence & Risk Factor Extraction for Indian Capital
 st.markdown("---")
 
 # ==========================================
-# 2. DOCUMENT INGESTION
+# 2. DOCUMENT INGESTION & LIVE PREVIEW
 # ==========================================
 st.header("1. Document Ingestion")
 uploaded_file = None
+preview_text = "Evaluating uploaded document layout...\nExtracting base financial metrics...\nScanning for standard SEBI disclosures..."
 
 if scenario == "Upload Real PDF (Live Demo)":
     uploaded_file = st.file_uploader("Upload SEBI DRHP Filing (PDF):", type="pdf")
     if uploaded_file is not None:
-        st.success("✅ PDF Extracted successfully!")
+        st.success("✅ PDF Uploaded successfully!")
+        
+        # --- LIVE PREVIEW EXTRACTION ---
+        try:
+            with pdfplumber.open(uploaded_file) as pdf:
+                # Grab the first page for the UI preview
+                extracted = pdf.pages[0].extract_text()
+                if extracted:
+                    preview_text = extracted[:1500] + "\n\n... [Remaining text securely buffered for agent analysis] ..."
+                else:
+                    preview_text = "No readable text found on the first page. Agent will scan deeper pages during analysis."
+            
+            # IMPORTANT: Reset the file pointer so the ReAct engine can read it again later!
+            uploaded_file.seek(0) 
+        except Exception as e:
+            preview_text = f"Preview generation failed. The agent will attempt full extraction during analysis.\nError: {e}"
+
 else:
     st.info(f"Ingesting DRHP profile: {scenario}")
 
@@ -89,7 +112,7 @@ with st.expander("📄 View Parsed Sections & Tables"):
     if scenario == "Upload Real PDF (Live Demo)":
         if uploaded_file is not None:
             st.write("**Extracted:** Live PDF data parsing active.")
-            st.text_area("Raw Extracted Text Snippet:", "Evaluating uploaded document layout...\nExtracting base financial metrics...\nScanning for standard SEBI disclosures...", height=100)
+            st.text_area("Raw Extracted Text Snippet:", preview_text, height=200)
         else:
             st.write("**Extracted:** Awaiting file upload...")
             
@@ -151,18 +174,24 @@ if st.button("Initialize Due Diligence Agent"):
                 # RUN THE REAL MATH
                 live_risk, live_conf, live_evidence, live_text = analyze_live_pdf(uploaded_file)
                 
-                st.write("👀 **Observation:** Live text successfully extracted and indexed.")
-                time.sleep(1)
-                
-                st.write("🛠️ **Selecting Tool:** `deterministic_risk_scanner()` running NLP keyword matching...")
-                time.sleep(1.5)
-                
-                if live_risk > 50:
-                    hypothesis_panel.error(f"🎯 **Final Conclusion:** High risk factors detected in live document. (Confidence: {live_conf}%)")
-                    status.update(label="Investigation Complete: Anomalies Detected", state="error", expanded=False)
+                # Check if it failed validation
+                if "Validation Failed" in live_evidence[0]:
+                    st.error(live_evidence[0])
+                    hypothesis_panel.error("🎯 **Final Conclusion:** Invalid Document. Agent aborted investigation.")
+                    status.update(label="Investigation Aborted: Invalid Document", state="error", expanded=False)
                 else:
-                    hypothesis_panel.success(f"🎯 **Final Conclusion:** Document appears stable based on deterministic scan. (Confidence: {live_conf}%)")
-                    status.update(label="Investigation Complete: Standard Baseline", state="complete", expanded=False)
+                    st.write("👀 **Observation:** Live text successfully extracted and indexed.")
+                    time.sleep(1)
+                    
+                    st.write("🛠️ **Selecting Tool:** `deterministic_risk_scanner()` running NLP keyword matching...")
+                    time.sleep(1.5)
+                    
+                    if live_risk > 50:
+                        hypothesis_panel.error(f"🎯 **Final Conclusion:** High risk factors detected in live document. (Confidence: {live_conf}%)")
+                        status.update(label="Investigation Complete: Anomalies Detected", state="error", expanded=False)
+                    else:
+                        hypothesis_panel.success(f"🎯 **Final Conclusion:** Document appears stable based on deterministic scan. (Confidence: {live_conf}%)")
+                        status.update(label="Investigation Complete: Standard Baseline", state="complete", expanded=False)
 
             # ------------------------------------------
             # PATH A: THE PIVOT (Mock)
@@ -194,7 +223,7 @@ if st.button("Initialize Due Diligence Agent"):
                 status.update(label="Investigation Complete: Concentration Risk Confirmed", state="error", expanded=False)
 
             # ------------------------------------------
-            # PATH B: THE GOVERNANCE TRAP
+            # PATH B: THE GOVERNANCE TRAP (Mock)
             # ------------------------------------------
             elif "Scenario B" in scenario:
                 hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning metrics. No anomalies detected. (Confidence: 100%)")
@@ -214,7 +243,7 @@ if st.button("Initialize Due Diligence Agent"):
                 status.update(label="Investigation Complete: Governance Risk Confirmed", state="error", expanded=False)
 
             # ------------------------------------------
-            # PATH C: CLEAN BASELINE
+            # PATH C: CLEAN BASELINE (Mock)
             # ------------------------------------------
             else:
                 hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning initial metrics. Establishing baseline. (Confidence: 100%)")
