@@ -7,9 +7,7 @@ st.set_page_config(page_title="IPO Due Diligence Agent", page_icon="📈", layou
 st.title("📈 Autonomous SEBI DRHP Agent")
 
 # Sidebar configurations
-api_key = st.sidebar.text_input("Enter Gemini API Key:", type="password")
-if api_key:
-    os.environ["GEMINI_API_KEY"] = api_key
+
 
 st.sidebar.markdown("### Test Architecture")
 test_target = st.sidebar.selectbox("Choose Target IPO:", [
