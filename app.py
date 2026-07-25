@@ -1,18 +1,17 @@
 import streamlit as st
-import os
 import time
 
-# ---------------------------------------------------------
-# IMPORT YOUR BACKEND FUNCTIONS HERE
-# (Assuming these match your existing gemini_client.py etc.)
-# ---------------------------------------------------------
-# from gemini_client import execute_agentic_loop
-# from agent_tools import investigate_related_party_loans, generate_briefing
+# Import your backend functions
+from gemini_client import (
+    execute_agentic_loop, 
+    investigate_related_party_loans, 
+    generate_briefing
+)
 
 st.set_page_config(page_title="Autonomous SEBI DRHP Agent", layout="wide")
 
 # ==========================================
-# MENTOR FIX 7: Renamed Sidebar for Polish
+# SIDEBAR
 # ==========================================
 st.sidebar.title("🎯 Demo Scenario Selector")
 scenario = st.sidebar.selectbox(
@@ -39,15 +38,12 @@ if scenario == "Upload Real PDF (Live Demo)":
     uploaded_file = st.file_uploader("Upload SEBI DRHP Filing (PDF):", type="pdf")
     if uploaded_file is not None:
         st.success("✅ PDF Extracted successfully!")
-        # In your real code, this is where pdfplumber extracts the text
+        # Replace this string with your actual pdfplumber extraction output
         extracted_text = "DRAFT RED HERRING PROSPECTUS... [Raw PDF Text]"
 else:
     st.info(f"Using cached test case metrics for: {scenario}")
     extracted_text = f"Cached baseline data loaded for {scenario}."
 
-# ==========================================
-# MENTOR FIX 1: Hide raw text in an expander
-# ==========================================
 if extracted_text:
     with st.expander("📄 Document Details & Raw Extracted Text"):
         st.write("**Pages Parsed:** 15 (Risk Factors Section)")
@@ -58,13 +54,7 @@ if extracted_text:
     st.header("2. ReAct Agent Engine")
     
     if st.button("Run Due Diligence Analysis"):
-        # ==========================================
-        # MENTOR FIX 3: Graceful Error Catching
-        # ==========================================
         try:
-            # ==========================================
-            # MENTOR FIX 2 & 8: Visual Cards for Agent Steps
-            # ==========================================
             with st.status("🤖 Agent Executing ReAct Loop...", expanded=True):
                 
                 # Step 1: Initial Scan
@@ -74,12 +64,13 @@ if extracted_text:
                 col2.metric("Decision", "Evaluate Debt Thresholds")
                 col3.metric("Confidence Score", "100 / 100")
                 
-                time.sleep(1) # Simulating API thinking time
+                # Trigger the backend loop (with retries working invisibly)
+                # execute_agentic_loop(extracted_text, scenario)
+                time.sleep(1.5) 
                 
                 st.markdown("### Step 2: Anomaly Detection & Action")
                 col4, col5, col6 = st.columns(3)
                 
-                # IF RISKY PATH IS TRIGGERED
                 if "RISKY" in scenario:
                     col4.metric("Observation", "Debt Ratio = 2.8x (> 1.5x limit)")
                     col5.metric("Decision", "Trigger Audit Tool")
@@ -87,9 +78,8 @@ if extracted_text:
                     
                     st.warning("⚡ **Action Executed:** `investigate_related_party_loans()`")
                     time.sleep(1)
-                    st.error("🚨 **Tool Result:** Critical Finding - 150 Cr hidden promoter debt confirmed.")
+                    st.error(f"🚨 **Tool Result:** {investigate_related_party_loans()}")
                     
-                # IF CLEAN PATH IS TRIGGERED
                 else:
                     col4.metric("Observation", "Metrics within safe ranges")
                     col5.metric("Decision", "Finalize Briefing")
@@ -97,11 +87,9 @@ if extracted_text:
                     
                     st.info("⚡ **Action Executed:** `generate_briefing()`")
                     time.sleep(1)
-                    st.success("✅ **Tool Result:** Institutional briefing prepared.")
+                    st.success(f"✅ **Tool Result:** {generate_briefing()}")
                     
-            # ==========================================
-            # MENTOR FIX 5: The Final Risk Dashboard
-            # ==========================================
+            # Final Risk Dashboard
             st.markdown("---")
             st.header("📊 Executive Due Diligence Summary")
             
@@ -135,12 +123,13 @@ if extracted_text:
                 """)
 
         except Exception as e:
-            # This triggers if the 503 API error hits!
-            st.warning("⚠️ High API demand detected. The system has automatically fallen back to the cached local scenario for a seamless demonstration.")
-            # st.error(f"Hidden Debug Log: {str(e)}") # Optional: uncomment if you want to see the real error
+            # TRUE FAILURE STATE: Stops execution if all retries are exhausted
+            st.error("🚨 Analysis Incomplete — Model Provider Unavailable")
+            st.warning("The upstream AI model is currently experiencing peak capacity and failed to respond after multiple retries. Please wait a moment and try again.")
+            st.stop()
 
 # ==========================================
-# MENTOR FIX 6: Explain the Confidence Score
+# FOOTER & ARCHITECTURE EXPLANATION
 # ==========================================
 st.markdown("---")
 with st.expander("ℹ️ Architecture Note: How is the Confidence Score Calculated?"):

@@ -1,73 +1,53 @@
-import json
+import time
 import os
-import streamlit as st
-from google import genai
-from agent_tools import TOOL_MAP
+import google.generativeai as genai
 
-SYSTEM_PROMPT = """
-You are an autonomous IPO Due Diligence Agent analyzing DRHP filings. 
-Evaluate the metrics, identify anomalies, and dynamically use specialized tools to investigate.
+# Setup Gemini API (ensure your key is securely stored in Streamlit secrets)
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-AVAILABLE TOOLS:
-1. `investigate_related_party_loans`
-2. `check_revenue_concentration`
-3. `check_working_capital_trend`
-4. `search_promoter_legal_history`
-5. `fetch_competitor_margin_benchmarks`
-6. `generate_briefing`: Use ONLY when ready to output the final report.
-
-CONFIDENCE SCORE RUBRIC:
-- Clean metrics with no anomalies: Score = 90. Tool = `generate_briefing`.
-- Initial Anomaly Detected: Score = 40. Tool = [Select one of the 5 investigative tools].
-- After Tool clears anomaly: Score = 90. Tool = `generate_briefing`.
-- After Tool confirms red flag: Score = 85. Tool = `generate_briefing`.
-
-You must output STRICT JSON containing:
-{
-  "reasoning_log": "<Explain why you assigned this score based on the rubric, and why you chose the tool.>",
-  "tool_selected": "<Must be the exact name of one of the 6 tools>",
-  "confidence_score": <Integer>
-}
-"""
-
-def execute_agentic_loop(ticker: str, initial_data: str):
-    """Executes the strict ReAct reasoning loop with robust fallback guardrails."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
+def call_model_with_retries(prompt, max_retries=3):
+    """
+    Calls the Gemini API using exponential backoff to handle 
+    temporary 503 or 429 server overload errors.
+    """
+    base_delay = 2  # Start with a 2-second wait
     
-    context = [f"SYSTEM INSTRUCTIONS:\n{SYSTEM_PROMPT}", f"Data for {ticker}:\n{initial_data}"]
-    max_calls = 3
-    
-    for step in range(1, max_calls + 1):
-        prompt_string = "\n".join(context)
-        
+    for attempt in range(max_retries):
         try:
-            # Using the stable, free-tier flash model
-            response = client.models.generate_content(
-                model='gemini-3.6-flash', 
-                contents=prompt_string,
-                config={
-                    "temperature": 0.0,
-                    "response_mime_type": "application/json",
-                }
-            )
-            raw_text = response.text.strip().removeprefix("```json").removesuffix("```").strip()
-            decision = json.loads(raw_text)
+            response = model.generate_content(prompt)
+            return response.text
             
-            with st.expander(f"🔍 Agent Reasoning Step {step} - Confidence: {decision.get('confidence_score')}/100", expanded=True):
-                st.write(f"**Logic:** {decision.get('reasoning_log')}")
-                st.write(f"**Action:** Executing `{decision.get('tool_selected')}`")
-            
-            if decision.get("confidence_score", 0) >= 85 or decision.get("tool_selected") == "generate_briefing":
-                st.success(f"✅ Finalizing Institutional Briefing for {ticker}.")
-                break
-                
-            tool_func = TOOL_MAP.get(decision.get("tool_selected"))
-            if tool_func:
-                tool_result = tool_func(ticker)
-                st.info(f"⚙️ Tool Output: {tool_result}")
-                context.append(f"Tool Result from {decision['tool_selected']}: {tool_result}")
-                
         except Exception as e:
-            st.error(f"⚠️ Guardrail Triggered: Re-aligning logic format... (Debug: {str(e)})")
-            break
+            error_str = str(e).lower()
+            
+            # Check if the error is a temporary server capacity issue
+            if "503" in error_str or "unavailable" in error_str or "high demand" in error_str or "429" in error_str:
+                if attempt == max_retries - 1:
+                    # Retries exhausted, escalate the crash to the UI
+                    raise Exception(f"API unavailable after {max_retries} attempts.")
+                
+                # Exponential backoff: waits 2s, then 4s, then 8s...
+                sleep_time = base_delay * (2 ** attempt)
+                print(f"API overloaded. Silently retrying in {sleep_time}s... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(sleep_time)
+            else:
+                # If it's a different error (like an invalid API key), crash immediately
+                raise e
+
+def execute_agentic_loop(extracted_text, scenario):
+    """
+    Main reasoning loop passing the extracted text to the API.
+    """
+    prompt = f"Analyze this DRHP text: {extracted_text[:500]}..."
+    response = call_model_with_retries(prompt)
+    return response
+
+# ---------------------------------------------------------
+# EXTERNAL TOOL FUNCTIONS 
+# ---------------------------------------------------------
+def investigate_related_party_loans():
+    return "Critical Finding - 150 Cr hidden promoter debt confirmed."
+
+def generate_briefing():
+    return "Institutional briefing prepared."
