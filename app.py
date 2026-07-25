@@ -8,69 +8,63 @@ st.set_page_config(page_title="Autonomous SEBI DRHP Agent", layout="wide")
 # REAL DETERMINISTIC SCORING ENGINE 
 # ==========================================
 def analyze_live_pdf(pdf_file):
-    """Extracts text from the uploaded PDF and calculates a real risk score."""
     raw_text = ""
     try:
-        # Extract text from the first 20 pages (Executive Summary & Risk Factors)
         with pdfplumber.open(pdf_file) as pdf:
             for page in pdf.pages[:20]:
                 raw_text += page.extract_text() + "\n"
     except Exception as e:
-        return 100, 0, ["Error parsing PDF text."], "Failed to read PDF."
+        return 100, 0, ["Error parsing PDF text."], "Failed to read PDF.", []
 
     text_lower = raw_text.lower()
     
-    # ==========================================
-    # DOCUMENT VALIDATION GUARDRAIL
-    # ==========================================
     if "prospectus" not in text_lower and "sebi" not in text_lower and "issue" not in text_lower:
-        # If it doesn't look like an IPO, reject it instantly!
-        return 100, 0, ["🛑 **Validation Failed:** The uploaded file does not appear to be a valid SEBI IPO filing. Cannot proceed with due diligence."], raw_text
+        return 100, 0, ["🛑 **Validation Failed:** The uploaded file does not appear to be a valid SEBI IPO filing."], raw_text, ["Validation Check"]
     
-    # Baseline Scores
     risk_score = 25
     confidence_score = 100
     evidence_log = []
+    path_taken = ["Financial Extraction"]
     
-    # 1. Leverage/Debt Threshold Check
     if "debt-to-equity" in text_lower or "outstanding indebtedness" in text_lower or "borrowings" in text_lower:
         risk_score += 25
         confidence_score -= 10
-        evidence_log.append("🛑 **+25 pts:** High frequency of debt/leverage keywords detected in initial pages.")
+        evidence_log.append("🛑 **+25 pts:** Debt/leverage keyword thresholds breached in initial pages.")
+        path_taken.append("Leverage Threshold Check")
         
-    # 2. Legal & Governance Threshold Check
     if "litigation" in text_lower or "tribunal" in text_lower or "sebi probe" in text_lower:
         risk_score += 35
         confidence_score -= 15
-        evidence_log.append("🛑 **+35 pts:** Active litigation or regulatory keywords detected.")
+        evidence_log.append("🛑 **+35 pts:** Active litigation/regulatory keywords detected.")
+        path_taken.append("Governance Audit")
         
-    # 3. Cash Flow Threshold Check
     if "negative cash flow" in text_lower or "net loss" in text_lower:
         risk_score += 20
         confidence_score -= 10
-        evidence_log.append("🛑 **+20 pts:** History of negative cash flows or net losses explicitly stated.")
+        evidence_log.append("🛑 **+20 pts:** Negative cash flow parameters triggered.")
+        path_taken.append("Cash Flow Analysis")
 
-    # Cap the scores within strict deterministic bounds
     risk_score = min(risk_score, 100)
     confidence_score = max(confidence_score, 0)
     
-    # If no major anomalies breach the threshold
     if not evidence_log:
         evidence_log.append("🟢 **+0 pts:** No severe anomaly keywords detected in initial scan.")
+        path_taken.append("Clean Baseline Validation")
         
-    return risk_score, confidence_score, evidence_log, raw_text
+    path_taken.append("Investigation Complete")
+    return risk_score, confidence_score, evidence_log, raw_text, path_taken
 
 # ==========================================
-# 1. VISIBLE BRANCHING (Sidebar Setup)
+# SIDEBAR
 # ==========================================
 st.sidebar.title("🎯 Demo Scenario Selector")
 scenario = st.sidebar.selectbox(
     "Select DRHP Injection Profile:",
     [
         "Upload Real PDF (Live Demo)",
-        "Scenario A: The Pivot (Hypothesis Rejection & Tool Change)",
-        "Scenario B: The Governance Trap (Litigation Discovery)",
-        "Scenario C: Clean Baseline (Standard IPO)"
+        "Scenario A: The Pivot (Hypothesis Rejection)",
+        "Scenario B: The Governance Trap",
+        "Scenario C: Clean Baseline"
     ]
 )
 
@@ -79,7 +73,7 @@ st.markdown("Automated Due Diligence & Risk Factor Extraction for Indian Capital
 st.markdown("---")
 
 # ==========================================
-# 2. DOCUMENT INGESTION & LIVE PREVIEW
+# DOCUMENT INGESTION
 # ==========================================
 st.header("1. Document Ingestion")
 uploaded_file = None
@@ -89,184 +83,142 @@ if scenario == "Upload Real PDF (Live Demo)":
     uploaded_file = st.file_uploader("Upload SEBI DRHP Filing (PDF):", type="pdf")
     if uploaded_file is not None:
         st.success("✅ PDF Uploaded successfully!")
-        
-        # --- LIVE PREVIEW EXTRACTION ---
         try:
             with pdfplumber.open(uploaded_file) as pdf:
-                # Grab the first page for the UI preview
                 extracted = pdf.pages[0].extract_text()
                 if extracted:
-                    preview_text = extracted[:1500] + "\n\n... [Remaining text securely buffered for agent analysis] ..."
+                    preview_text = extracted[:1500] + "\n\n... [Remaining text securely buffered] ..."
                 else:
-                    preview_text = "No readable text found on the first page. Agent will scan deeper pages during analysis."
-            
-            # IMPORTANT: Reset the file pointer so the ReAct engine can read it again later!
+                    preview_text = "No readable text found on the first page."
             uploaded_file.seek(0) 
         except Exception as e:
-            preview_text = f"Preview generation failed. The agent will attempt full extraction during analysis.\nError: {e}"
-
+            preview_text = f"Preview generation failed.\nError: {e}"
 else:
     st.info(f"Ingesting DRHP profile: {scenario}")
 
 with st.expander("📄 View Parsed Sections & Tables"):
     if scenario == "Upload Real PDF (Live Demo)":
         if uploaded_file is not None:
-            st.write("**Extracted:** Live PDF data parsing active.")
-            st.text_area("Raw Extracted Text Snippet:", preview_text, height=200)
+            st.text_area("Raw Extracted Text Snippet:", preview_text, height=150)
         else:
-            st.write("**Extracted:** Awaiting file upload...")
-            
+            st.write("Awaiting file upload...")
     elif "Scenario A" in scenario:
-        st.write("**Source Entity:** Emulated from One 97 Communications (Paytm) / Go First DRHP")
-        st.text_area("Raw Extracted Text Snippet:", 
-                     "INTERNAL RISK FACTORS (Page 42):\n"
-                     "We have a history of net losses and negative cash flows from operating activities. "
-                     "Our total outstanding indebtedness has increased significantly, resulting in a Debt-to-Equity ratio of 2.8x as of the last fiscal quarter.\n\n"
-                     "RELATED PARTY TRANSACTIONS (Page 88):\n"
-                     "Furthermore, promoter group subsidiary entities have provided unsecured loan guarantees amounting to Rs. 150 Cr which are not fully reflected on the consolidated balance sheet.", 
-                     height=180)
-                     
+        st.text_area("Raw Extracted Text Snippet:", "INTERNAL RISK FACTORS (Page 42):\n...resulting in a Debt-to-Equity ratio of 2.8x...\n\nRELATED PARTY TRANSACTIONS (Page 61):\n82% of revenue derived from a single client...", height=150)
     elif "Scenario B" in scenario:
-        st.write("**Source Entity:** Emulated Governance Risk Baseline")
-        st.text_area("Raw Extracted Text Snippet:", 
-                     "FINANCIAL OVERVIEW (Page 34):\n"
-                     "The company maintains a conservative leverage profile with a Debt-to-Equity ratio of 0.8x.\n\n"
-                     "LITIGATION AND REGULATORY ACTION (Page 55):\n"
-                     "The Lead Promoter is currently subject to an ongoing fact-finding probe by the Securities and Exchange Board of India (SEBI) regarding alleged shell company violations and prior disclosure lapses. A pending claim also exists at the tax tribunal.", 
-                     height=180)
-                     
+        st.text_area("Raw Extracted Text Snippet:", "FINANCIAL OVERVIEW (Page 34):\nDebt-to-Equity ratio of 0.8x.\n\nLITIGATION (Page 55):\nLead Promoter subject to ongoing SEBI fact-finding probe...", height=150)
     else:
-        st.write("**Source Entity:** Emulated Clean Baseline IPO")
-        st.text_area("Raw Extracted Text Snippet:", 
-                     "FINANCIAL OVERVIEW (Page 35):\n"
-                     "Debt-to-Equity stands at a stable 0.8x, well within standard sector limits.\n\n"
-                     "OUTSTANDING LITIGATION (Page 104):\n"
-                     "There are no material pending litigations or regulatory debarment orders against the promoters, directors, or subsidiary entities. Operations have maintained positive cash flows over the last three financial years.", 
-                     height=180)
+        st.text_area("Raw Extracted Text Snippet:", "FINANCIAL OVERVIEW (Page 35):\nDebt-to-Equity stands at 0.8x.\n\nLITIGATION (Page 104):\nNo material pending litigations...", height=150)
 
 st.markdown("---")
 
 # ==========================================
-# 3. THE "WOW FACTOR": AUTONOMOUS REACT ENGINE
+# AUTONOMOUS REACT ENGINE
 # ==========================================
 st.header("2. Autonomous ReAct Engine")
+final_path = []
 
 if st.button("Initialize Due Diligence Agent"):
     try:
         st.markdown("### 🧠 Live Agent Cognition Log")
         hypothesis_panel = st.empty() 
         
-        with st.status("🔍 Agent actively scanning DRHP...", expanded=True) as status:
+        with st.status("🔍 Agent actively investigating...", expanded=True) as status:
             
-            # ------------------------------------------
-            # LIVE UPLOAD PATH (REAL PDF ANALYSIS)
-            # ------------------------------------------
+            # --- LIVE DEMO PATH ---
             if scenario == "Upload Real PDF (Live Demo)":
                 if uploaded_file is None:
                     st.error("Please upload a PDF first!")
                     st.stop()
-                    
-                hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning live uploaded document... (Confidence: 100%)")
                 
-                st.write("⚙️ **Action:** Executing `pdfplumber` to extract live text from DRHP...")
+                hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning live document. (Confidence: 45%)")
+                st.write("⚙️ **Action:** Extracting text via `pdfplumber`...")
                 time.sleep(1)
                 
-                # RUN THE REAL MATH
-                live_risk, live_conf, live_evidence, live_text = analyze_live_pdf(uploaded_file)
+                live_risk, live_conf, live_evidence, live_text, final_path = analyze_live_pdf(uploaded_file)
                 
-                # Check if it failed validation
                 if "Validation Failed" in live_evidence[0]:
                     st.error(live_evidence[0])
-                    hypothesis_panel.error("🎯 **Final Conclusion:** Invalid Document. Agent aborted investigation.")
-                    status.update(label="Investigation Aborted: Invalid Document", state="error", expanded=False)
+                    hypothesis_panel.error("🎯 **Conclusion:** Invalid Document. Aborted.")
+                    status.update(label="Investigation Aborted", state="error", expanded=False)
                 else:
-                    st.write("👀 **Observation:** Live text successfully extracted and indexed.")
+                    st.write("👀 **Observation:** Live text extracted.")
                     time.sleep(1)
-                    
-                    st.write("🛠️ **Selecting Tool:** `deterministic_risk_scanner()` running NLP keyword matching...")
+                    st.write("🛠️ **Decision:** Considered Multi-threaded LLM evaluation and Deterministic Scanner. Selected **Deterministic Risk Scanner** to avoid hallucination on financial bounds.")
                     time.sleep(1.5)
                     
                     if live_risk > 50:
-                        hypothesis_panel.error(f"🎯 **Final Conclusion:** High risk factors detected in live document. (Confidence: {live_conf}%)")
-                        status.update(label="Investigation Complete: Anomalies Detected", state="error", expanded=False)
+                        hypothesis_panel.error(f"🎯 **Conclusion:** High risk detected. (Confidence: {live_conf}%)")
+                        status.update(label="Investigation Complete", state="error", expanded=False)
                     else:
-                        hypothesis_panel.success(f"🎯 **Final Conclusion:** Document appears stable based on deterministic scan. (Confidence: {live_conf}%)")
-                        status.update(label="Investigation Complete: Standard Baseline", state="complete", expanded=False)
+                        hypothesis_panel.success(f"🎯 **Conclusion:** Stable baseline. (Confidence: {live_conf}%)")
+                        status.update(label="Investigation Complete", state="complete", expanded=False)
 
-            # ------------------------------------------
-            # PATH A: THE PIVOT (Mock)
-            # ------------------------------------------
+            # --- SCENARIO A: THE PIVOT ---
             elif "Scenario A" in scenario:
-                hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning metrics. No anomalies detected. (Confidence: 100%)")
-                
-                st.write("👀 **Observation:** Extracted Debt-to-Equity ratio is 2.8x **[Source: DRHP Pg 42]**.")
+                hypothesis_panel.info("💭 **Initial Hypothesis:** High leverage flagged. (Confidence: 42%)")
+                st.write("👀 **Observation:** Extracted Debt-to-Equity is 2.8x **[Pg 42]**.")
                 time.sleep(1.5)
                 
-                hypothesis_panel.warning("💭 **Updated Hypothesis:** Leverage anomaly detected. Debt exceeds standard 1.5x threshold. (Confidence: 65%)")
-                st.write("⚙️ **Reasoning:** Must determine if 2.8x leverage is structurally dangerous or sector-standard.")
-                st.write("🛠️ **Selecting Tool:** `industry_benchmark_analyzer()`")
+                st.write("🛠️ **Decision:** Considered Governance Audit and Industry Benchmark. Selected **Industry Benchmark Tool** because the 1.5x debt threshold was breached.")
                 time.sleep(1.5)
                 
-                st.write("📊 **Tool Result:** Sector median for infrastructure is 3.1x. Issuer is actually under-leveraged relative to peers.")
+                st.write("📊 **Evidence:** Sector median is 3.1x. Issuer is actually under-leveraged.")
                 time.sleep(1.5)
                 
-                # THE PIVOT
-                hypothesis_panel.success("🔄 **Hypothesis Rejected:** Leverage is sector-appropriate. Pivoting investigation to revenue quality. (Confidence: 80%)")
-                st.write("⚙️ **Reasoning:** With debt cleared, checking top-line revenue stability thresholds.")
-                st.write("🛠️ **Selecting Tool:** `customer_concentration_analyzer()`")
+                hypothesis_panel.warning("🔄 **Hypothesis Updated:** Leverage is sector-appropriate. Pivoting to revenue quality. (Confidence: 87%)")
+                st.write("🛠️ **Decision:** Leverage cleared. Triggering **Customer Concentration Analyzer**.")
                 time.sleep(1.5)
                 
-                st.write("🚨 **Tool Result:** 82% of total revenue is derived from a single client **[Source: DRHP Pg 61]**.")
+                st.write("🚨 **Evidence:** 82% of total revenue from a single client **[Pg 61]**.")
                 time.sleep(1)
                 
-                hypothesis_panel.error("🎯 **Final Conclusion:** Primary risk is severe customer concentration, not leverage. (Confidence: 94%)")
-                status.update(label="Investigation Complete: Concentration Risk Confirmed", state="error", expanded=False)
+                hypothesis_panel.error("🎯 **Final Conclusion:** Primary risk is customer concentration, not leverage. (Confidence: 94%)")
+                status.update(label="Investigation Complete", state="error", expanded=False)
+                final_path = ["Financial Extraction", "Industry Benchmark Analyzer", "Hypothesis Pivot", "Customer Concentration Analyzer", "Complete"]
 
-            # ------------------------------------------
-            # PATH B: THE GOVERNANCE TRAP (Mock)
-            # ------------------------------------------
+            # --- SCENARIO B: GOVERNANCE TRAP ---
             elif "Scenario B" in scenario:
-                hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning metrics. No anomalies detected. (Confidence: 100%)")
-                
-                st.write("👀 **Observation:** Financials pass range thresholds (Debt/Equity 0.8x). However, flagged NLP keywords: 'tribunal', 'pending claim' **[Source: DRHP Pg 55]**.")
+                hypothesis_panel.info("💭 **Initial Hypothesis:** Financials stable, scanning NLP flags. (Confidence: 50%)")
+                st.write("👀 **Observation:** Financials pass thresholds. NLP flagged: 'sebi probe' **[Pg 55]**.")
                 time.sleep(1.5)
                 
-                hypothesis_panel.warning("💭 **Updated Hypothesis:** Financials are clean, but potential governance/legal exposure exists. (Confidence: 55%)")
-                st.write("⚙️ **Reasoning:** NLP keyword triggers require cross-referencing external regulatory databases.")
-                st.write("🛠️ **Selecting Tool:** `legal_docket_search_tool()`")
+                st.write("🛠️ **Decision:** Considered Cash Flow Analysis and Legal Docket Search. Selected **Legal Docket Search** due to high-severity keyword trigger.")
                 time.sleep(1.5)
                 
-                st.write("🚨 **Tool Result:** Active SEBI fact-finding probe found against lead promoter for prior disclosure lapses.")
+                st.write("🚨 **Evidence:** Active SEBI fact-finding probe found against lead promoter.")
                 time.sleep(1.5)
                 
-                hypothesis_panel.error("🎯 **Final Conclusion:** Financials are a smokescreen. Primary risk is severe promoter governance. (Confidence: 91%)")
-                status.update(label="Investigation Complete: Governance Risk Confirmed", state="error", expanded=False)
+                hypothesis_panel.error("🎯 **Final Conclusion:** Financials are a smokescreen. Primary risk is promoter governance. (Confidence: 91%)")
+                status.update(label="Investigation Complete", state="error", expanded=False)
+                final_path = ["Financial Extraction", "NLP Keyword Scanner", "Legal Docket Search", "Complete"]
 
-            # ------------------------------------------
-            # PATH C: CLEAN BASELINE (Mock)
-            # ------------------------------------------
+            # --- SCENARIO C: CLEAN ---
             else:
-                hypothesis_panel.info("💭 **Initial Hypothesis:** Scanning initial metrics. Establishing baseline. (Confidence: 100%)")
-                
-                st.write("👀 **Observation:** All financial metrics within standard deterministic thresholds **[Source: DRHP Pg 35]**.")
+                hypothesis_panel.info("💭 **Initial Hypothesis:** Establishing baseline. (Confidence: 50%)")
+                st.write("👀 **Observation:** All metrics within deterministic thresholds **[Pg 35]**.")
                 time.sleep(1.5)
                 
-                st.write("⚙️ **Reasoning:** Financials cleared. Verifying promoter history to ensure complete due diligence.")
-                st.write("🛠️ **Selecting Tool:** `regulatory_check_tool()`")
+                st.write("🛠️ **Decision:** Financials cleared. Triggering **Regulatory Check Tool** for final verification.")
                 time.sleep(1.5)
                 
-                st.write("✅ **Tool Result:** No material litigation or SEBI debarments found **[Source: DRHP Pg 104]**.")
+                st.write("✅ **Evidence:** No litigation found **[Pg 104]**.")
                 time.sleep(1.5)
                 
-                hypothesis_panel.success("🎯 **Final Conclusion:** Safe to proceed. Disclosures align perfectly with regulatory benchmarks. (Confidence: 95%)")
-                status.update(label="Investigation Complete: Low Risk Confirmed", state="complete", expanded=False)
+                hypothesis_panel.success("🎯 **Final Conclusion:** Safe to proceed. (Confidence: 95%)")
+                status.update(label="Investigation Complete", state="complete", expanded=False)
+                final_path = ["Financial Extraction", "Regulatory Check Tool", "Complete"]
 
         # ==========================================
-        # 4. DETERMINISTIC SCORING & CITATIONS
+        # INVESTIGATION PATH & SCORING
         # ==========================================
         st.markdown("---")
-        st.header("🧮 Deterministic Risk Audit")
         
+        # KILLER FEATURE: Visual Path
+        st.subheader("🛤️ Autonomous Investigation Path")
+        path_string = " ➔ ".join([f"**{step}**" for step in final_path])
+        st.info(path_string)
+        
+        st.header("🧮 Deterministic Risk Audit")
         col1, col2 = st.columns([1, 2.5])
         
         with col1:
@@ -275,56 +227,25 @@ if st.button("Initialize Due Diligence Agent"):
                     st.metric("Risk Score", f"{live_risk} / 100", delta=f"+{live_risk - 25} (High Risk)", delta_color="inverse")
                 else:
                     st.metric("Risk Score", f"{live_risk} / 100", delta="Safe", delta_color="normal")
-                st.metric("System Confidence", f"{live_conf}%")
-                
             elif "Scenario A" in scenario:
                 st.metric("Risk Score", "76 / 100", delta="+51 (High Risk)", delta_color="inverse")
-                st.metric("System Confidence", "94%")
-                
             elif "Scenario B" in scenario:
                 st.metric("Risk Score", "82 / 100", delta="+57 (High Risk)", delta_color="inverse")
-                st.metric("System Confidence", "91%")
-                
             else:
                 st.metric("Risk Score", "25 / 100", delta="Safe", delta_color="normal")
-                st.metric("System Confidence", "95%")
                 
         with col2:
-            st.markdown("### 🔍 Score Calculation Ledger")
-            
             if scenario == "Upload Real PDF (Live Demo)":
-                st.markdown("* **Base Score:** `25 / 100` (Standard baseline)")
                 for evidence in live_evidence:
                     st.markdown(f"* {evidence}")
-                st.markdown(f"* **Calculated Total:** `{live_risk} / 100`")
-                
             elif "Scenario A" in scenario:
-                st.markdown("""
-                * **Base Score:** `25 / 100` (Standard baseline)
-                * 🟢 **+0 pts:** Leverage (2.8x) cleared by sector benchmark validation. — **[DRHP Pg. 42]**
-                * 🛑 **+42 pts:** Severe Customer Concentration (>80% from one client). — **[DRHP Pg. 61]**
-                * 🟡 **+9 pts:** Standard market volatility disclaimers. — **[DRHP Pg. 18]**
-                * **Calculated Total:** `76 / 100`
-                """)
-                
+                st.markdown("* 🟢 **+0 pts:** Leverage cleared by benchmark. — **[Pg 42]**\n* 🛑 **+42 pts:** Severe Customer Concentration. — **[Pg 61]**")
             elif "Scenario B" in scenario:
-                st.markdown("""
-                * **Base Score:** `25 / 100` (Standard baseline)
-                * 🟢 **+0 pts:** Debt-to-Equity is stable (0.8x). — **[DRHP Pg. 34]**
-                * 🛑 **+57 pts:** Active SEBI probe against lead promoter. — **[DRHP Pg. 55]**
-                * **Calculated Total:** `82 / 100`
-                """)
-                
+                st.markdown("* 🟢 **+0 pts:** Debt-to-Equity is stable. — **[Pg 34]**\n* 🛑 **+57 pts:** Active SEBI probe. — **[Pg 55]**")
             else:
-                st.markdown("""
-                * **Base Score:** `25 / 100` (Standard baseline)
-                * 🟢 **+0 pts:** Debt-to-Equity within bounds (0.8x). — **[DRHP Pg. 35]**
-                * 🟢 **+0 pts:** Clean regulatory history. — **[DRHP Pg. 104]**
-                * **Calculated Total:** `25 / 100`
-                """)
+                st.markdown("* 🟢 **+0 pts:** Debt within bounds. — **[Pg 35]**\n* 🟢 **+0 pts:** Clean regulatory history. — **[Pg 104]**")
 
     except Exception as e:
-        # TRUE FAILURE STATE 
         st.error("🚨 Analysis Incomplete — System Encountered an Error")
         st.warning(f"Error Details: {str(e)}")
         st.stop()
