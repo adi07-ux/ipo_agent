@@ -89,19 +89,3 @@ def analyze_live_pdf(pdf_file):
             prompt = f"""
             You are an autonomous financial due diligence agent. Analyze this SEBI DRHP excerpt.
             Evaluate for: 1. Leverage/Debt anomalies, 2. Promoter Litigation, 3. Negative Cash Flow.
-            
-            Respond strictly in valid JSON format with these exact keys:
-            "risk_score": integer between 25 and 100,
-            "evidence_coverage": integer between 0 and 100,
-            "evidence_log": list of strings citing the issues found,
-            "path_taken": list of strings representing the logic steps,
-            "primary_driver": a short string stating the primary risk driver (e.g. "Governance Risk")
-            
-            Document Text:
-            {raw_text[:15000]} 
-            """
-            
-            for attempt in range(2):
-                try:
-                    response = model.generate_content(prompt)
-                    json_str = response.text.replace('```json', '').replace('
